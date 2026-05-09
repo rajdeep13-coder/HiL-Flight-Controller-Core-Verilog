@@ -103,21 +103,20 @@ Expected output: PID responds to step errors, integral accumulates, saturation c
 Run the closed-loop Hardware-in-the-Loop simulation:
 
 ```bash
-cd sim
-make
+python sim/run_sim.py
 ```
 
 This will:
 1. Compile all Verilog RTL with Icarus Verilog
 2. Run the cocotb testbench with the embedded physics model
-3. Generate `hil_flight_log.csv` with all signal traces
+3. Generate `sim/sim_build/hil_flight_log.csv` with all signal traces
 
 ### Step 3: Plot Step Response
 
 Generate the step response visualization:
 
 ```bash
-python sim/plot_response.py --csv sim/hil_flight_log.csv --output sim/step_response.png
+python sim/plot_response.py --csv sim/sim_build/hil_flight_log.csv --output sim/step_response.png
 ```
 
 ---
