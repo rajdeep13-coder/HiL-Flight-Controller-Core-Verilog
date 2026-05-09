@@ -3,7 +3,6 @@ sim/sim_build/
 sim/*.vcd
 sim/*.vvp
 sim/hil_flight_log.csv
-sim/step_response.png
 
 # Python
 __pycache__/
