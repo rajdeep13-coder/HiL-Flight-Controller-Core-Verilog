@@ -9,10 +9,11 @@ Usage:
 import os
 import sys
 
-# Add iverilog to PATH if not already there
-iverilog_bin = r"C:\iverilog\bin"
-if iverilog_bin not in os.environ.get("PATH", ""):
-    os.environ["PATH"] = iverilog_bin + os.pathsep + os.environ.get("PATH", "")
+# Add iverilog to PATH on Windows if not already there
+if sys.platform == "win32":
+    iverilog_bin = r"C:\iverilog\bin"
+    if iverilog_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = iverilog_bin + os.pathsep + os.environ.get("PATH", "")
 
 from cocotb_tools.runner import get_runner
 
@@ -24,6 +25,7 @@ def main():
     
     # RTL sources
     sources = [
+        os.path.join(rtl_dir, "gain_regs.v"),
         os.path.join(rtl_dir, "pid_controller.v"),
         os.path.join(rtl_dir, "saturation_guard.v"),
         os.path.join(rtl_dir, "mixer.v"),
