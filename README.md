@@ -19,6 +19,8 @@ A complete simulation-ready **Verilog** flight controller for a quadcopter, feat
 
 Three independent **PID controllers** (roll, pitch, yaw) process error signals, pass through **saturation guards** for anti-windup protection, feed into an **X-frame mixer** that computes four motor duties, which are then converted to **50 Hz PWM** signals.
 
+PID gains (Kp/Ki/Kd × 3 axes) are stored in a **runtime-writable register file** (`gain_regs`) accessible via a simple parallel bus — no recompilation needed to retune. This enables live tuning from the Python HiL testbench and opens the door to auto-tuning.
+
 The HiL testbench closes the loop with a **Python rotational physics model** — reading motor outputs, simulating quadcopter dynamics, and writing errors back into the DUT each clock cycle.
 
 ---
@@ -53,18 +55,19 @@ def q88_to_float(val):
 ```
 hil-flight-controller/
 ├── rtl/
-│   ├── pid_controller.v          # Parameterized PID with Q8.8 arithmetic
-│   ├── saturation_guard.v        # Combinational clamping + anti-windup
-│   ├── mixer.v                   # X-frame motor mixing matrix
-│   ├── pwm_gen.v                 # Counter-based 50 Hz PWM generator
-│   └── flight_controller_top.v   # Top-level integration
+│   ├── gain_regs.v                # Runtime-writable PID gain register file
+│   ├── pid_controller.v           # PID with runtime gain inputs (Q8.8)
+│   ├── saturation_guard.v         # Combinational clamping + anti-windup
+│   ├── mixer.v                    # X-frame motor mixing matrix
+│   ├── pwm_gen.v                  # Counter-based 50 Hz PWM generator
+│   └── flight_controller_top.v    # Top-level integration + gain bus
 ├── sim/
-│   ├── tb_pid.v                  # Standalone Verilog PID testbench
-│   ├── tb_flight_controller.py   # Cocotb HiL testbench with physics
-│   ├── plot_response.py          # Matplotlib step response plotter
-│   └── Makefile                  # Cocotb simulation Makefile
+│   ├── tb_pid.v                   # Standalone Verilog PID testbench
+│   ├── tb_flight_controller.py    # Cocotb HiL testbench with physics
+│   ├── plot_response.py           # Matplotlib step response plotter
+│   └── Makefile                   # Cocotb simulation Makefile
 ├── docs/
-│   └── architecture.md           # Detailed module documentation
+│   └── architecture.md            # Detailed module documentation
 └── README.md
 ```
 
@@ -96,7 +99,7 @@ vvp sim/tb_pid
 gtkwave tb_pid.vcd
 ```
 
-Expected output: PID responds to step errors, integral accumulates, saturation clamps at limits, reset zeroes all state.
+Expected output: PID responds to step errors, integral accumulates, saturation clamps at limits, runtime gain change takes effect immediately, reset zeroes all state.
 
 ### Step 2: Full HiL Simulation (cocotb)
 
@@ -136,11 +139,12 @@ The plot demonstrates:
 
 | Module | Type | Description |
 |:-------|:-----|:------------|
-| `pid_controller` | Sequential | P + I (with hold) + D control, Q8.8 arithmetic |
+| `gain_regs` | Sequential | 9-register file for runtime PID gain tuning |
+| `pid_controller` | Sequential | P + I (with hold) + D control, runtime gain inputs |
 | `saturation_guard` | Combinational | Output clamping, generates `integrator_hold` |
 | `mixer` | Combinational | X-frame mixing: throttle ± roll ± pitch ± yaw |
 | `pwm_gen` | Sequential | Counter-based PWM, configurable frequency |
-| `flight_controller_top` | Structural | 3×PID + 3×SAT + 1×MIX + 4×PWM |
+| `flight_controller_top` | Structural | GAIN_REGS + 3×PID + 3×SAT + 1×MIX + 4×PWM |
 
 ### X-Frame Mixing Matrix
 
@@ -150,6 +154,27 @@ The plot demonstrates:
 | M1 | Back Left   | +1 | +1 | −1 | +1 |
 | M2 | Front Left  | +1 | +1 | +1 | −1 |
 | M3 | Back Right  | +1 | −1 | −1 | −1 |
+
+---
+
+### Runtime Gain Tuning
+
+PID gains are stored in a register file and can be written at runtime via a simple parallel bus:
+
+```python
+# From the cocotb testbench:
+async def write_gain(dut, addr, value_q88):
+    dut.wr_addr.value = addr
+    dut.wr_data.value = value_q88
+    dut.wr_en.value   = 1
+    await RisingEdge(dut.clk)
+    dut.wr_en.value   = 0
+
+# Example: double the roll Kp mid-simulation
+await write_gain(dut, 0x0, float_to_q88(0.2))  # ROLL_Kp = 0.2
+```
+
+See [architecture.md](docs/architecture.md) for the full register map.
 
 ---
 

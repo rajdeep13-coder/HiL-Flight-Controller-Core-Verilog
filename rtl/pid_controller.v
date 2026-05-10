@@ -10,15 +10,16 @@
 //============================================================================
 
 module pid_controller #(
-    parameter signed [15:0] Kp      = 16'h0100,  // 1.0  in Q8.8
-    parameter signed [15:0] Ki      = 16'h001A,  // 0.1  in Q8.8 (≈26/256)
-    parameter signed [15:0] Kd      = 16'h0080,  // 0.5  in Q8.8
     parameter signed [15:0] MAX_OUT = 16'h7F00,  // +127.0 in Q8.8
     parameter signed [15:0] MIN_OUT = 16'h8100   // -127.0 in Q8.8
 )(
     input  wire        clk,
     input  wire        rst,
-    input  wire [15:0] error_in,        // Signed Q8.8 error
+    // Runtime-configurable PID gains (Q8.8 signed)
+    input  wire [15:0] Kp,               // Proportional gain
+    input  wire [15:0] Ki,               // Integral gain
+    input  wire [15:0] Kd,               // Derivative gain
+    input  wire [15:0] error_in,         // Signed Q8.8 error
     input  wire        integrator_hold,  // Freeze integrator when saturated
     output reg  [15:0] pid_out           // Signed Q8.8 PID output (raw, unclamped)
 );

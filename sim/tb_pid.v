@@ -4,6 +4,9 @@
 //              saturation_guard modules. Applies a step error input and
 //              observes the PID response over 500 clock cycles.
 //
+//              Updated for runtime gain inputs: Kp/Ki/Kd are now driven
+//              as reg signals rather than compile-time parameters.
+//
 // Run with Icarus Verilog:
 //   iverilog -o tb_pid rtl/pid_controller.v rtl/saturation_guard.v sim/tb_pid.v
 //   vvp tb_pid
@@ -15,11 +18,11 @@
 module tb_pid;
 
     //------------------------------------------------------------------------
-    // Parameters — using moderate gains for visible response
+    // Gain values — driven as runtime signals
     //------------------------------------------------------------------------
-    localparam signed [15:0] Kp      = 16'h0100;  // 1.0
-    localparam signed [15:0] Ki      = 16'h001A;  // ~0.1 (26/256)
-    localparam signed [15:0] Kd      = 16'h0080;  // 0.5
+    localparam signed [15:0] KP_VAL  = 16'h0100;  // 1.0
+    localparam signed [15:0] KI_VAL  = 16'h001A;  // ~0.1 (26/256)
+    localparam signed [15:0] KD_VAL  = 16'h0080;  // 0.5
     localparam signed [15:0] MAX_OUT = 16'h7F00;  // +127.0
     localparam signed [15:0] MIN_OUT = 16'h8100;  // -127.0
 
@@ -29,6 +32,9 @@ module tb_pid;
     reg         clk;
     reg         rst;
     reg  [15:0] error_in;
+    reg  [15:0] kp_reg;
+    reg  [15:0] ki_reg;
+    reg  [15:0] kd_reg;
 
     wire [15:0] pid_raw_out;
     wire [15:0] pid_clamped_out;
@@ -38,14 +44,14 @@ module tb_pid;
     // DUT instantiation: PID → Saturation Guard
     //------------------------------------------------------------------------
     pid_controller #(
-        .Kp      (Kp),
-        .Ki      (Ki),
-        .Kd      (Kd),
         .MAX_OUT (MAX_OUT),
         .MIN_OUT (MIN_OUT)
     ) dut_pid (
         .clk             (clk),
         .rst             (rst),
+        .Kp              (kp_reg),
+        .Ki              (ki_reg),
+        .Kd              (kd_reg),
         .error_in        (error_in),
         .integrator_hold (integrator_hold),
         .pid_out         (pid_raw_out)
@@ -95,7 +101,7 @@ module tb_pid;
     initial begin
         $display("============================================================");
         $display("  PID Controller + Saturation Guard Testbench");
-        $display("  Kp=%.4f  Ki=%.4f  Kd=%.4f", q88_to_real(Kp), q88_to_real(Ki), q88_to_real(Kd));
+        $display("  Kp=%.4f  Ki=%.4f  Kd=%.4f", q88_to_real(KP_VAL), q88_to_real(KI_VAL), q88_to_real(KD_VAL));
         $display("============================================================");
         $display("");
         $display("  Cycle | Error(Q8.8) | Error(dec) | PID Raw    | PID Clamp  | Hold");
@@ -104,6 +110,9 @@ module tb_pid;
         // Initialize
         rst      = 1;
         error_in = 16'h0000;
+        kp_reg   = KP_VAL;
+        ki_reg   = KI_VAL;
+        kd_reg   = KD_VAL;
         cycle    = 0;
 
         // Hold reset for 5 cycles
@@ -168,9 +177,24 @@ module tb_pid;
                 pid_raw_out, pid_clamped_out, integrator_hold);
         end
 
-        // ---- TEST 5: Reset mid-operation ----
+        // ---- TEST 5: Runtime gain change ----
         $display("");
-        $display("  [TEST 5] Assert reset — all outputs should zero");
+        $display("  [TEST 5] Runtime gain change: Kp 1.0 → 2.0, error=+10.0");
+        error_in = 16'h0A00;  // +10.0
+        kp_reg   = 16'h0200;  // 2.0 in Q8.8
+
+        repeat (20) begin
+            @(posedge clk);
+            cycle = cycle + 1;
+            $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b  (Kp=%.4f)",
+                cycle, error_in, q88_to_real(error_in),
+                pid_raw_out, pid_clamped_out, integrator_hold,
+                q88_to_real(kp_reg));
+        end
+
+        // ---- TEST 6: Reset mid-operation ----
+        $display("");
+        $display("  [TEST 6] Assert reset — all outputs should zero");
         rst = 1;
         repeat (3) @(posedge clk);
         cycle = cycle + 3;

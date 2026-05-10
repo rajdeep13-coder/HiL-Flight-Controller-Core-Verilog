@@ -14,6 +14,7 @@ TOPLEVEL_LANG ?= verilog
 
 # RTL source files
 VERILOG_SOURCES = \
+    $(PWD)/../rtl/gain_regs.v \
     $(PWD)/../rtl/pid_controller.v \
     $(PWD)/../rtl/saturation_guard.v \
     $(PWD)/../rtl/mixer.v \

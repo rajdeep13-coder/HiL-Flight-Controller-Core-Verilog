@@ -2,12 +2,17 @@
 
 //============================================================================
 // Module:      flight_controller_top
-// Description: Top-level flight controller integrating 3× PID controllers
-//              (roll/pitch/yaw), 3× saturation guards, 1× mixer, and
-//              4× PWM generators. Provides a clean interface for HiL
-//              simulation or hardware deployment.
+// Description: Top-level flight controller integrating runtime-configurable
+//              gain registers, 3× PID controllers (roll/pitch/yaw),
+//              3× saturation guards, 1× mixer, and 4× PWM generators.
+//
+//              PID gains are written at runtime via a simple parallel bus
+//              (wr_en + wr_addr + wr_data) and stored in the gain_regs
+//              register file. See gain_regs.v for the register map.
 //
 // Architecture:
+//   wr_bus → [GAIN_REGS] → gains
+//                              ↓
 //   error_in → [PID] → raw_out → [SAT_GUARD] → clamped_out → [MIXER] → [PWM]
 //                ↑                    |
 //                └── integrator_hold ─┘
@@ -16,18 +21,6 @@
 //============================================================================
 
 module flight_controller_top #(
-    // Roll PID gains (Q8.8)
-    parameter signed [15:0] ROLL_Kp  = 16'h001A,  // ~0.1
-    parameter signed [15:0] ROLL_Ki  = 16'h0001,  // ~0.004
-    parameter signed [15:0] ROLL_Kd  = 16'h0033,  // ~0.2
-    // Pitch PID gains (Q8.8)
-    parameter signed [15:0] PITCH_Kp = 16'h001A,  // ~0.1
-    parameter signed [15:0] PITCH_Ki = 16'h0001,  // ~0.004
-    parameter signed [15:0] PITCH_Kd = 16'h0033,  // ~0.2
-    // Yaw PID gains (Q8.8)
-    parameter signed [15:0] YAW_Kp   = 16'h000D,  // ~0.05
-    parameter signed [15:0] YAW_Ki   = 16'h0001,  // ~0.004
-    parameter signed [15:0] YAW_Kd   = 16'h001A,  // ~0.1
     // Saturation limits (Q8.8)
     parameter signed [15:0] MAX_OUT  = 16'h7F00,  // +127.0
     parameter signed [15:0] MIN_OUT  = 16'h8100,  // -127.0
@@ -38,6 +31,11 @@ module flight_controller_top #(
     // ---- System ----
     input  wire        clk,
     input  wire        rst,
+
+    // ---- Gain register write bus ----
+    input  wire        wr_en,          // Write enable (single-cycle strobe)
+    input  wire [3:0]  wr_addr,        // Register address (see gain_regs.v)
+    input  wire [15:0] wr_data,        // Write data (Q8.8)
 
     // ---- Error inputs (Q8.8 signed) ----
     input  wire [15:0] roll_error,
@@ -65,7 +63,33 @@ module flight_controller_top #(
     output wire        pwm_out3
 );
 
+    // ================================================================
+    // Gain wires from register file
+    // ================================================================
+    wire [15:0] roll_kp,  roll_ki,  roll_kd;
+    wire [15:0] pitch_kp, pitch_ki, pitch_kd;
+    wire [15:0] yaw_kp,   yaw_ki,   yaw_kd;
+
+    gain_regs gain_regs_inst (
+        .clk      (clk),
+        .rst      (rst),
+        .wr_en    (wr_en),
+        .wr_addr  (wr_addr),
+        .wr_data  (wr_data),
+        .roll_kp  (roll_kp),
+        .roll_ki  (roll_ki),
+        .roll_kd  (roll_kd),
+        .pitch_kp (pitch_kp),
+        .pitch_ki (pitch_ki),
+        .pitch_kd (pitch_kd),
+        .yaw_kp   (yaw_kp),
+        .yaw_ki   (yaw_ki),
+        .yaw_kd   (yaw_kd)
+    );
+
+    // ================================================================
     // Internal wires
+    // ================================================================
 
     // Raw PID outputs (before saturation)
     wire [15:0] roll_pid_raw;
@@ -82,51 +106,55 @@ module flight_controller_top #(
     wire [15:0] pitch_clamped;
     wire [15:0] yaw_clamped;
 
-    // PID Controllers
+    // ================================================================
+    // PID Controllers (gains from register file)
+    // ================================================================
 
     pid_controller #(
-        .Kp      (ROLL_Kp),
-        .Ki      (ROLL_Ki),
-        .Kd      (ROLL_Kd),
         .MAX_OUT (MAX_OUT),
         .MIN_OUT (MIN_OUT)
     ) pid_roll (
         .clk             (clk),
         .rst             (rst),
+        .Kp              (roll_kp),
+        .Ki              (roll_ki),
+        .Kd              (roll_kd),
         .error_in        (roll_error),
         .integrator_hold (roll_integrator_hold),
         .pid_out         (roll_pid_raw)
     );
 
     pid_controller #(
-        .Kp      (PITCH_Kp),
-        .Ki      (PITCH_Ki),
-        .Kd      (PITCH_Kd),
         .MAX_OUT (MAX_OUT),
         .MIN_OUT (MIN_OUT)
     ) pid_pitch (
         .clk             (clk),
         .rst             (rst),
+        .Kp              (pitch_kp),
+        .Ki              (pitch_ki),
+        .Kd              (pitch_kd),
         .error_in        (pitch_error),
         .integrator_hold (pitch_integrator_hold),
         .pid_out         (pitch_pid_raw)
     );
 
     pid_controller #(
-        .Kp      (YAW_Kp),
-        .Ki      (YAW_Ki),
-        .Kd      (YAW_Kd),
         .MAX_OUT (MAX_OUT),
         .MIN_OUT (MIN_OUT)
     ) pid_yaw (
         .clk             (clk),
         .rst             (rst),
+        .Kp              (yaw_kp),
+        .Ki              (yaw_ki),
+        .Kd              (yaw_kd),
         .error_in        (yaw_error),
         .integrator_hold (yaw_integrator_hold),
         .pid_out         (yaw_pid_raw)
     );
 
+    // ================================================================
     // Saturation Guards (combinational anti-windup)
+    // ================================================================
 
     saturation_guard #(
         .MAX_OUT (MAX_OUT),
@@ -160,7 +188,9 @@ module flight_controller_top #(
     assign pitch_pid_out = pitch_clamped;
     assign yaw_pid_out   = yaw_clamped;
 
+    // ================================================================
     // Motor Mixer (X-frame configuration)
+    // ================================================================
 
     mixer mixer_inst (
         .throttle  (throttle),
@@ -173,7 +203,9 @@ module flight_controller_top #(
         .motor3    (motor3_duty)
     );
 
+    // ================================================================
     // PWM Generators (one per motor)
+    // ================================================================
 
     pwm_gen #(
         .CLK_FREQ (CLK_FREQ),

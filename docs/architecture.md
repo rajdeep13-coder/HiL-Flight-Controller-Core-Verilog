@@ -14,6 +14,10 @@ All arithmetic uses **signed Q8.8 fixed-point** format — no floating point any
                    ┌─────────────────────────────────────────────────────────────────┐
                    │                    flight_controller_top                         │
                    │                                                                 │
+  wr_en ───────────┤──┐                                                              │
+  wr_addr [3:0] ───┤  ├──► [gain_regs] ──► Kp/Ki/Kd per axis                        │
+  wr_data [15:0] ──┤──┘         │                                                    │
+                   │            ↓                                                    │
   roll_error ──────┤──► [pid_controller] ──► [saturation_guard] ──► roll_clamped ──┐ │
                    │         ↑                      │                              │ │
                    │         └── integrator_hold ────┘                              │ │
@@ -101,17 +105,60 @@ Check bits [31:23] for overflow:
 
 ## Module Descriptions
 
-### 1. pid_controller (`rtl/pid_controller.v`)
+### 1. gain_regs (`rtl/gain_regs.v`)
 
-**Purpose:** Implements a discrete PID controller with configurable gains, all in Q8.8 fixed-point.
+**Purpose:** Runtime-writable register file holding all 9 PID gains (Kp/Ki/Kd × 3 axes). Provides a simple parallel write bus for runtime tuning without recompilation.
 
-**Parameters:**
+**Bus Interface:**
+
+| Signal | Width | Direction | Description |
+|:-------|:------|:----------|:------------|
+| `wr_en` | 1 | Input | Write enable (single-cycle strobe) |
+| `wr_addr` | 4 | Input | Register address (0–8) |
+| `wr_data` | 16 | Input | Write data (Q8.8) |
+
+**Register Map:**
+
+| Address | Register | Reset Default (Q8.8) | Float |
+|:-------:|:---------|:---------------------|:------|
+| `0x0` | `ROLL_Kp` | `0x001A` | ~0.1 |
+| `0x1` | `ROLL_Ki` | `0x0001` | ~0.004 |
+| `0x2` | `ROLL_Kd` | `0x0033` | ~0.2 |
+| `0x3` | `PITCH_Kp` | `0x001A` | ~0.1 |
+| `0x4` | `PITCH_Ki` | `0x0001` | ~0.004 |
+| `0x5` | `PITCH_Kd` | `0x0033` | ~0.2 |
+| `0x6` | `YAW_Kp` | `0x000D` | ~0.05 |
+| `0x7` | `YAW_Ki` | `0x0001` | ~0.004 |
+| `0x8` | `YAW_Kd` | `0x001A` | ~0.1 |
+
+**Write Protocol:**
+1. Assert `wr_en=1` with target `wr_addr` and `wr_data` on a rising clock edge
+2. The register updates on that same edge
+3. De-assert `wr_en` on the next cycle
+
+**Key Design Decisions:**
+- Reset defaults match the original compile-time parameter values — behavior is unchanged out of reset
+- Write-only bus (no read path) — keeps hardware minimal; cocotb can read via hierarchical access
+- 4-bit address allows future expansion to 16 registers (e.g., adding MAX_OUT/MIN_OUT per axis)
+
+---
+
+### 2. pid_controller (`rtl/pid_controller.v`)
+
+**Purpose:** Implements a discrete PID controller with runtime-configurable gains, all in Q8.8 fixed-point.
+
+**Runtime Inputs (gains from gain_regs):**
+
+| Port | Width | Description |
+|:-----|:------|:------------|
+| `Kp` | 16 | Proportional gain (Q8.8) |
+| `Ki` | 16 | Integral gain (Q8.8) |
+| `Kd` | 16 | Derivative gain (Q8.8) |
+
+**Parameters (compile-time):**
 
 | Parameter | Default (Q8.8) | Float Value | Description |
 |:----------|:---------------|:------------|:------------|
-| `Kp` | `0x0100` | 1.0 | Proportional gain |
-| `Ki` | `0x001A` | ~0.1 | Integral gain |
-| `Kd` | `0x0080` | 0.5 | Derivative gain |
 | `MAX_OUT` | `0x7F00` | +127.0 | Output upper clamp |
 | `MIN_OUT` | `0x8100` | −127.0 | Output lower clamp |
 
@@ -130,10 +177,11 @@ prev_error ← error
 - 32-bit integrator accumulator prevents early saturation of the integral term
 - Each multiplication uses a `saturate_q88()` function that extracts `[23:8]` from the 32-bit product and checks for overflow
 - The `integrator_hold` input enables anti-windup: when asserted, the integrator freezes its current value
+- Kp/Ki/Kd are runtime input ports (not parameters), fed from `gain_regs` — gains can change on any clock cycle without recompilation
 
 ---
 
-### 2. saturation_guard (`rtl/saturation_guard.v`)
+### 3. saturation_guard (`rtl/saturation_guard.v`)
 
 **Purpose:** Combinational output clamping with anti-windup feedback signal.
 
@@ -154,7 +202,7 @@ else:
 
 ---
 
-### 3. mixer (`rtl/mixer.v`)
+### 4. mixer (`rtl/mixer.v`)
 
 **Purpose:** Translates roll/pitch/yaw corrections and throttle into four motor duty cycles using the X-frame mixing matrix.
 
@@ -181,7 +229,7 @@ else:
 
 ---
 
-### 4. pwm_gen (`rtl/pwm_gen.v`)
+### 5. pwm_gen (`rtl/pwm_gen.v`)
 
 **Purpose:** Generates a single-bit PWM signal from a Q8.8 duty cycle word.
 
@@ -201,23 +249,28 @@ else:
 
 ---
 
-### 5. flight_controller_top (`rtl/flight_controller_top.v`)
+### 6. flight_controller_top (`rtl/flight_controller_top.v`)
 
-**Purpose:** Top-level integration module.
+**Purpose:** Top-level integration module with runtime gain configuration.
 
 **Instantiation Summary:**
-- 3× `pid_controller` — roll, pitch, yaw (independently parameterized)
+- 1× `gain_regs` — runtime-writable PID gain register file
+- 3× `pid_controller` — roll, pitch, yaw (gains from register file)
 - 3× `saturation_guard` — one per axis
 - 1× `mixer` — combines all axis outputs with throttle
 - 4× `pwm_gen` — one per motor
 
-**Parameter Defaults:**
+**Gain Register Bus:**
+
+The top module exposes `wr_en`, `wr_addr[3:0]`, and `wr_data[15:0]` input ports. These are wired directly to the internal `gain_regs` instance. From cocotb or any external controller, write a gain register by strobing `wr_en=1` for one clock cycle with the target address and Q8.8 value.
+
+**Default Gains (loaded on reset via gain_regs):**
 
 | Axis | Kp | Ki | Kd |
 |:-----|:--:|:--:|:--:|
-| Roll | 1.0 | 0.1 | 0.5 |
-| Pitch | 1.0 | 0.1 | 0.5 |
-| Yaw | 0.5 | 0.05 | 0.25 |
+| Roll | ~0.1 | ~0.004 | ~0.2 |
+| Pitch | ~0.1 | ~0.004 | ~0.2 |
+| Yaw | ~0.05 | ~0.004 | ~0.1 |
 
 Yaw gains are intentionally lower since yaw authority is typically less than roll/pitch on a quadcopter.
 

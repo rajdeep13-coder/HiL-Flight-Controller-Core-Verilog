@@ -10,6 +10,9 @@ On each clock cycle:
   5. Encode errors back to Q8.8 and drive into DUT
   6. Log everything to CSV
 
+Gain registers can be written at runtime via the parallel bus
+(wr_en, wr_addr, wr_data) using the write_gain() helper.
+
 Usage:
   cd sim && make
 """
@@ -41,6 +44,49 @@ def q88_to_float(val):
     if val >= 0x8000:
         val -= 0x10000
     return val / 256.0
+
+
+# Gain Register Addresses (must match gain_regs.v)
+GAIN_ADDR = {
+    'roll_kp':  0x0,
+    'roll_ki':  0x1,
+    'roll_kd':  0x2,
+    'pitch_kp': 0x3,
+    'pitch_ki': 0x4,
+    'pitch_kd': 0x5,
+    'yaw_kp':   0x6,
+    'yaw_ki':   0x7,
+    'yaw_kd':   0x8,
+}
+
+
+async def write_gain(dut, addr, value_q88):
+    """Write a single gain register over the parallel bus.
+
+    Args:
+        dut: cocotb DUT handle
+        addr: Register address (int, 0-8) or string key from GAIN_ADDR
+        value_q88: Q8.8 value as unsigned 16-bit integer
+    """
+    if isinstance(addr, str):
+        addr = GAIN_ADDR[addr]
+    dut.wr_addr.value = addr
+    dut.wr_data.value = value_q88
+    dut.wr_en.value   = 1
+    await RisingEdge(dut.clk)
+    dut.wr_en.value   = 0
+
+
+async def write_gains_bulk(dut, gains_dict):
+    """Write multiple gain registers sequentially.
+
+    Args:
+        dut: cocotb DUT handle
+        gains_dict: dict mapping register name (str) to float gain value
+                    e.g. {'roll_kp': 0.2, 'roll_kd': 0.4}
+    """
+    for name, float_val in gains_dict.items():
+        await write_gain(dut, name, float_to_q88(float_val))
 
 
 # Simplified Rotational Physics Model
@@ -161,12 +207,18 @@ async def hil_flight_test(dut):
     """
     Hardware-in-the-Loop test: runs the full flight controller with a
     simplified rotational physics model providing closed-loop feedback.
+    
+    Demonstrates runtime gain tuning at cycle 1500 by increasing roll/pitch
+    Kp to show live retuning capability.
     """
     
     # Configuration
     NUM_CYCLES   = 3000          # Number of simulation cycles
     CLK_PERIOD   = 20            # ns (50 MHz)
     PHYSICS_DT   = 0.001         # seconds per sim step
+    
+    # Cycle at which gains are retuned (mid-simulation)
+    RETUNE_CYCLE = 1500
     
     # Setpoints (degrees) — step inputs applied at cycle 0
     ROLL_SETPOINT  = 10.0
@@ -195,12 +247,15 @@ async def hil_flight_test(dut):
         "roll_rate", "pitch_rate", "yaw_rate"
     ])
     
-    # Reset
+    # Reset — initialize all inputs including gain bus
     dut.rst.value = 1
     dut.roll_error.value  = 0
     dut.pitch_error.value = 0
     dut.yaw_error.value   = 0
     dut.throttle.value    = float_to_q88(THROTTLE_HOVER)
+    dut.wr_en.value       = 0
+    dut.wr_addr.value     = 0
+    dut.wr_data.value     = 0
     
     for _ in range(10):
         await RisingEdge(dut.clk)
@@ -210,9 +265,17 @@ async def hil_flight_test(dut):
     # HiL Loop
     dut._log.info(f"Starting HiL simulation: {NUM_CYCLES} cycles")
     dut._log.info(f"Setpoints — Roll: {ROLL_SETPOINT}°, Pitch: {PITCH_SETPOINT}°, Yaw: {YAW_SETPOINT}°")
+    dut._log.info(f"Runtime retune scheduled at cycle {RETUNE_CYCLE}")
     
     for cycle in range(NUM_CYCLES):
         await RisingEdge(dut.clk)
+        
+        # --- Runtime gain retune at mid-simulation ---
+        if cycle == RETUNE_CYCLE:
+            dut._log.info("=== RUNTIME RETUNE: Increasing roll/pitch Kp from ~0.1 to ~0.2 ===")
+            await write_gain(dut, 'roll_kp',  float_to_q88(0.2))   # addr 0x0
+            await write_gain(dut, 'pitch_kp', float_to_q88(0.2))   # addr 0x3
+            dut._log.info("=== Gains updated. Controller response should change. ===")
         
         # --- 1. Read motor duty cycles from DUT ---
         m0_duty = q88_to_float(dut.motor0_duty.value.to_unsigned() & 0xFFFF)
