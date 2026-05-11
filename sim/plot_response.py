@@ -65,7 +65,7 @@ def plot_step_response(data, output_path="step_response.png"):
     yaw_setpoint   = data['yaw_error'][0]   + data['yaw_angle'][0]
     
     # ---- Figure setup ----
-    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+    fig, axes = plt.subplots(4, 1, figsize=(14, 13), sharex=True)
     fig.suptitle('HiL Flight Controller — Step Response',
                  fontsize=16, fontweight='bold', y=0.98)
     
@@ -104,6 +104,14 @@ def plot_step_response(data, output_path="step_response.png"):
             'pid': data['yaw_pid'],
             'error': data['yaw_error'],
         },
+        {
+            'title': 'Altitude (Z) Response',
+            'setpoint': 0.0,
+            'angle': data.get('z', np.zeros_like(data['cycle'])),
+            'pid': np.zeros_like(data['cycle']),
+            'error': np.zeros_like(data['cycle']),
+            'is_z': True
+        },
     ]
     
     for ax, config in zip(axes, axes_config):
@@ -113,40 +121,52 @@ def plot_step_response(data, output_path="step_response.png"):
         for spine in ax.spines.values():
             spine.set_color('#333366')
         
-        # Setpoint reference line
-        ax.axhline(y=config['setpoint'], color=colors['setpoint'],
-                    linestyle='--', linewidth=1.5, alpha=0.8, label='Setpoint')
+        is_z = config.get('is_z', False)
         
-        # Actual angle
-        ax.plot(cycles, config['angle'], color=colors['angle'],
-                linewidth=1.8, label='Actual Angle (°)', zorder=3)
-        
-        # PID output (secondary y-axis)
-        ax2 = ax.twinx()
-        ax2.plot(cycles, config['pid'], color=colors['pid'],
-                 linewidth=1.0, alpha=0.6, label='PID Output (Q8.8)')
-        ax2.set_ylabel('PID Output', color=colors['pid'], fontsize=9)
-        ax2.tick_params(axis='y', colors=colors['pid'], labelsize=8)
-        for spine in ax2.spines.values():
-            spine.set_color('#333366')
-        
-        # Error trace
-        ax.plot(cycles, config['error'], color=colors['error'],
-                linewidth=1.0, alpha=0.4, label='Error (°)')
-        
-        # Labels and legend
-        ax.set_ylabel('Angle (°)', color='#CCCCCC', fontsize=10)
+        if not is_z:
+            # Setpoint reference line
+            ax.axhline(y=config['setpoint'], color=colors['setpoint'],
+                        linestyle='--', linewidth=1.5, alpha=0.8, label='Setpoint')
+            
+            # Actual angle
+            ax.plot(cycles, config['angle'], color=colors['angle'],
+                    linewidth=1.8, label='Actual Angle (°)', zorder=3)
+            
+            # PID output (secondary y-axis)
+            ax2 = ax.twinx()
+            ax2.plot(cycles, config['pid'], color=colors['pid'],
+                     linewidth=1.0, alpha=0.6, label='PID Output (Q8.8)')
+            ax2.set_ylabel('PID Output', color=colors['pid'], fontsize=9)
+            ax2.tick_params(axis='y', colors=colors['pid'], labelsize=8)
+            for spine in ax2.spines.values():
+                spine.set_color('#333366')
+            
+            # Error trace
+            ax.plot(cycles, config['error'], color=colors['error'],
+                    linewidth=1.0, alpha=0.4, label='Error (°)')
+            
+            # Labels and legend
+            ax.set_ylabel('Angle (°)', color='#CCCCCC', fontsize=10)
+            
+            # Combined legend
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2,
+                      loc='upper right', fontsize=8,
+                      facecolor='#1A1A2E', edgecolor='#333366',
+                      labelcolor='#CCCCCC')
+        else:
+            # Altitude plot
+            ax.plot(cycles, config['angle'], color=colors['angle'],
+                    linewidth=1.8, label='Altitude (m)', zorder=3)
+            ax.set_ylabel('Height (m)', color='#CCCCCC', fontsize=10)
+            ax.legend(loc='upper right', fontsize=8,
+                      facecolor='#1A1A2E', edgecolor='#333366',
+                      labelcolor='#CCCCCC')
+
         ax.set_title(config['title'], color='#FFFFFF', fontsize=12,
                      fontweight='bold', pad=8)
         ax.grid(True, color=colors['grid'], alpha=0.1, linewidth=0.5)
-        
-        # Combined legend
-        lines1, labels1 = ax.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax.legend(lines1 + lines2, labels1 + labels2,
-                  loc='upper right', fontsize=8,
-                  facecolor='#1A1A2E', edgecolor='#333366',
-                  labelcolor='#CCCCCC')
     
     # X-axis label
     axes[-1].set_xlabel('Simulation Cycle', color='#CCCCCC', fontsize=11)
@@ -164,10 +184,15 @@ def plot_step_response(data, output_path="step_response.png"):
     # Print summary statistics
     print("\n=== Step Response Summary ===")
     for config in axes_config:
-        final_angle = config['angle'][-1]
-        final_error = abs(config['error'][-1])
-        print(f"  {config['title']:20s} | Setpoint: {config['setpoint']:+8.3f}° | "
-              f"Final: {final_angle:+8.3f}° | Error: {final_error:.3f}°")
+        is_z = config.get('is_z', False)
+        if not is_z:
+            final_angle = config['angle'][-1]
+            final_error = abs(config['error'][-1])
+            print(f"  {config['title']:20s} | Setpoint: {config['setpoint']:+8.3f}° | "
+                  f"Final: {final_angle:+8.3f}° | Error: {final_error:.3f}°")
+        else:
+            final_z = config['angle'][-1]
+            print(f"  {config['title']:20s} | Final Z: {final_z:8.3f} m")
 
 
 def main():

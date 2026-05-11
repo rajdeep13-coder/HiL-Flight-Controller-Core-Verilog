@@ -137,6 +137,21 @@ class QuadcopterPhysics:
         self.pitch_damping = 0.15
         self.yaw_damping   = 0.08
         
+        # Translational properties
+        # Mass chosen so hover throttle (50) matches gravity perfectly (4 * 50 * 0.02 = 4N)
+        self.mass = 4.0 / 9.81  # ~0.4077 kg
+        self.g = 9.81
+        
+        # Translational state (meters)
+        self.x = 0.0
+        self.y = 0.0
+        self.z = 0.0
+        
+        # Translational velocity (m/s)
+        self.vx = 0.0
+        self.vy = 0.0
+        self.vz = 0.0
+        
         # State: [roll, pitch, yaw] in degrees
         self.roll  = 0.0
         self.pitch = 0.0
@@ -194,6 +209,37 @@ class QuadcopterPhysics:
         self.pitch += self.pitch_rate * self.dt
         self.yaw   += self.yaw_rate   * self.dt
         
+        # Linear dynamics (Z is UP)
+        total_thrust = f0 + f1 + f2 + f3
+        
+        roll_rad = math.radians(self.roll)
+        pitch_rad = math.radians(self.pitch)
+        yaw_rad = math.radians(self.yaw)
+        
+        cr, sr = math.cos(roll_rad), math.sin(roll_rad)
+        cp, sp = math.cos(pitch_rad), math.sin(pitch_rad)
+        cy, sy = math.cos(yaw_rad), math.sin(yaw_rad)
+        
+        thrust_m = total_thrust / self.mass
+        ax = thrust_m * (cy * sp * cr + sy * sr)
+        ay = thrust_m * (sy * sp * cr - cy * sr)
+        az = thrust_m * (cp * cr) - self.g
+        
+        self.vx += ax * self.dt
+        self.vy += ay * self.dt
+        self.vz += az * self.dt
+        
+        # Simple ground collision model
+        if self.z <= 0 and self.vz < 0:
+            self.z = 0.0
+            self.vz = 0.0
+            self.vx *= 0.9  # ground friction
+            self.vy *= 0.9
+            
+        self.x += self.vx * self.dt
+        self.y += self.vy * self.dt
+        self.z += self.vz * self.dt
+        
         # Clamp angles to prevent numerical blowup
         self.roll  = max(-90.0, min(90.0, self.roll))
         self.pitch = max(-90.0, min(90.0, self.pitch))
@@ -244,7 +290,8 @@ async def hil_flight_test(dut):
         "roll_pid", "pitch_pid", "yaw_pid",
         "motor0", "motor1", "motor2", "motor3",
         "roll_angle", "pitch_angle", "yaw_angle",
-        "roll_rate", "pitch_rate", "yaw_rate"
+        "roll_rate", "pitch_rate", "yaw_rate",
+        "x", "y", "z", "vx", "vy", "vz"
     ])
     
     # Reset — initialize all inputs including gain bus
@@ -311,13 +358,16 @@ async def hil_flight_test(dut):
             f"{roll_pid:.6f}", f"{pitch_pid:.6f}", f"{yaw_pid:.6f}",
             f"{m0_duty:.6f}", f"{m1_duty:.6f}", f"{m2_duty:.6f}", f"{m3_duty:.6f}",
             f"{physics.roll:.6f}", f"{physics.pitch:.6f}", f"{physics.yaw:.6f}",
-            f"{physics.roll_rate:.6f}", f"{physics.pitch_rate:.6f}", f"{physics.yaw_rate:.6f}"
+            f"{physics.roll_rate:.6f}", f"{physics.pitch_rate:.6f}", f"{physics.yaw_rate:.6f}",
+            f"{physics.x:.6f}", f"{physics.y:.6f}", f"{physics.z:.6f}",
+            f"{physics.vx:.6f}", f"{physics.vy:.6f}", f"{physics.vz:.6f}"
         ])
         
         # --- 7. Periodic logging to console ---
         if cycle % 200 == 0:
             dut._log.info(
                 f"Cycle {cycle:5d} | "
+                f"Z: {physics.z:5.2f}m | "
                 f"Roll: {physics.roll:+8.3f}° (err={roll_err:+8.3f}) | "
                 f"Pitch: {physics.pitch:+8.3f}° (err={pitch_err:+8.3f}) | "
                 f"Yaw: {physics.yaw:+8.3f}° | "
