@@ -373,6 +373,12 @@ async def hil_flight_test(dut):
                 f"Yaw: {physics.yaw:+8.3f}° | "
                 f"Motors: [{m0_duty:.1f}, {m1_duty:.1f}, {m2_duty:.1f}, {m3_duty:.1f}]"
             )
+            
+        # --- 8. Formal Assertions ---
+        # Assert that no internal arithmetic overflow occurs during normal flight envelope
+        assert dut.roll_pid_overflow.value == 0, f"Roll PID internal arithmetic overflow detected at cycle {cycle}!"
+        assert dut.pitch_pid_overflow.value == 0, f"Pitch PID internal arithmetic overflow detected at cycle {cycle}!"
+        assert dut.yaw_pid_overflow.value == 0, f"Yaw PID internal arithmetic overflow detected at cycle {cycle}!"
     
     # Cleanup
     csv_file.close()

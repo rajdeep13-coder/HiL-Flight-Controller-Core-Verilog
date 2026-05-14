@@ -39,6 +39,8 @@ module tb_pid;
     wire [15:0] pid_raw_out;
     wire [15:0] pid_clamped_out;
     wire        integrator_hold;
+    wire        pid_overflow;
+    wire        sat_overflow;
 
     //------------------------------------------------------------------------
     // DUT instantiation: PID → Saturation Guard
@@ -54,7 +56,8 @@ module tb_pid;
         .Kd              (kd_reg),
         .error_in        (error_in),
         .integrator_hold (integrator_hold),
-        .pid_out         (pid_raw_out)
+        .pid_out         (pid_raw_out),
+        .overflow        (pid_overflow)
     );
 
     saturation_guard #(
@@ -63,7 +66,8 @@ module tb_pid;
     ) dut_sat (
         .raw_in          (pid_raw_out),
         .clamped_out     (pid_clamped_out),
-        .integrator_hold (integrator_hold)
+        .integrator_hold (integrator_hold),
+        .overflow        (sat_overflow)
     );
 
     //------------------------------------------------------------------------
@@ -104,8 +108,8 @@ module tb_pid;
         $display("  Kp=%.4f  Ki=%.4f  Kd=%.4f", q88_to_real(KP_VAL), q88_to_real(KI_VAL), q88_to_real(KD_VAL));
         $display("============================================================");
         $display("");
-        $display("  Cycle | Error(Q8.8) | Error(dec) | PID Raw    | PID Clamp  | Hold");
-        $display("  ------|-------------|------------|------------|------------|-----");
+        $display("  Cycle | Error(Q8.8) | Error(dec) | PID Raw    | PID Clamp  | Hold | Ovf");
+        $display("  ------|-------------|------------|------------|------------|------|-----");
 
         // Initialize
         rst      = 1;
@@ -128,9 +132,9 @@ module tb_pid;
             @(posedge clk);
             cycle = cycle + 1;
             if (cycle <= 20 || cycle % 10 == 0) begin
-                $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b",
+                $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b    | %b%b",
                     cycle, error_in, q88_to_real(error_in),
-                    pid_raw_out, pid_clamped_out, integrator_hold);
+                    pid_raw_out, pid_clamped_out, integrator_hold, pid_overflow, sat_overflow);
             end
         end
 
@@ -143,9 +147,9 @@ module tb_pid;
             @(posedge clk);
             cycle = cycle + 1;
             if (cycle <= 120 || cycle % 10 == 0) begin
-                $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b",
+                $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b    | %b%b",
                     cycle, error_in, q88_to_real(error_in),
-                    pid_raw_out, pid_clamped_out, integrator_hold);
+                    pid_raw_out, pid_clamped_out, integrator_hold, pid_overflow, sat_overflow);
             end
         end
 
@@ -158,9 +162,9 @@ module tb_pid;
             @(posedge clk);
             cycle = cycle + 1;
             if (cycle <= 220 || cycle % 10 == 0) begin
-                $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b",
+                $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b    | %b%b",
                     cycle, error_in, q88_to_real(error_in),
-                    pid_raw_out, pid_clamped_out, integrator_hold);
+                    pid_raw_out, pid_clamped_out, integrator_hold, pid_overflow, sat_overflow);
             end
         end
 
@@ -172,9 +176,15 @@ module tb_pid;
         repeat (50) begin
             @(posedge clk);
             cycle = cycle + 1;
-            $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b",
+            $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b    | %b%b",
                 cycle, error_in, q88_to_real(error_in),
-                pid_raw_out, pid_clamped_out, integrator_hold);
+                pid_raw_out, pid_clamped_out, integrator_hold, pid_overflow, sat_overflow);
+            
+            // Formal check during saturation test
+            if (integrator_hold && !sat_overflow) begin
+                $display("  [FAIL] Saturation occurred but sat_overflow flag is not set!");
+                $fatal;
+            end
         end
 
         // ---- TEST 5: Runtime gain change ----
@@ -186,9 +196,9 @@ module tb_pid;
         repeat (20) begin
             @(posedge clk);
             cycle = cycle + 1;
-            $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b  (Kp=%.4f)",
+            $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b    | %b%b  (Kp=%.4f)",
                 cycle, error_in, q88_to_real(error_in),
-                pid_raw_out, pid_clamped_out, integrator_hold,
+                pid_raw_out, pid_clamped_out, integrator_hold, pid_overflow, sat_overflow,
                 q88_to_real(kp_reg));
         end
 
@@ -198,9 +208,9 @@ module tb_pid;
         rst = 1;
         repeat (3) @(posedge clk);
         cycle = cycle + 3;
-        $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b",
+        $display("  %5d | 0x%04h     | %8.4f   | 0x%04h     | 0x%04h     | %b    | %b%b",
             cycle, error_in, q88_to_real(error_in),
-            pid_raw_out, pid_clamped_out, integrator_hold);
+            pid_raw_out, pid_clamped_out, integrator_hold, pid_overflow, sat_overflow);
 
         // Verify reset behavior
         if (pid_raw_out == 16'h0000 && pid_clamped_out == 16'h0000)

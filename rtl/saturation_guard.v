@@ -14,7 +14,8 @@ module saturation_guard #(
 )(
     input  wire [15:0] raw_in,          // Raw PID output (Q8.8 signed)
     output wire [15:0] clamped_out,     // Clamped output (Q8.8 signed)
-    output wire        integrator_hold  // High when output is saturated
+    output wire        integrator_hold, // High when output is saturated
+    output wire        overflow         // High when output is saturated
 );
 
     // Saturation logic (purely combinational)
@@ -27,5 +28,6 @@ module saturation_guard #(
 
     // Assert integrator hold when output is at either limit
     assign integrator_hold = saturated_high | saturated_low;
+    assign overflow = saturated_high | saturated_low;
 
 endmodule

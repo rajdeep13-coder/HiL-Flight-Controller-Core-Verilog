@@ -60,7 +60,15 @@ module flight_controller_top #(
     output wire        pwm_out0,
     output wire        pwm_out1,
     output wire        pwm_out2,
-    output wire        pwm_out3
+    output wire        pwm_out3,
+
+    // ---- Overflow flags for monitoring ----
+    output wire        roll_pid_overflow,
+    output wire        pitch_pid_overflow,
+    output wire        yaw_pid_overflow,
+    output wire        roll_sat_overflow,
+    output wire        pitch_sat_overflow,
+    output wire        yaw_sat_overflow
 );
 
     // ================================================================
@@ -121,7 +129,8 @@ module flight_controller_top #(
         .Kd              (roll_kd),
         .error_in        (roll_error),
         .integrator_hold (roll_integrator_hold),
-        .pid_out         (roll_pid_raw)
+        .pid_out         (roll_pid_raw),
+        .overflow        (roll_pid_overflow)
     );
 
     pid_controller #(
@@ -135,7 +144,8 @@ module flight_controller_top #(
         .Kd              (pitch_kd),
         .error_in        (pitch_error),
         .integrator_hold (pitch_integrator_hold),
-        .pid_out         (pitch_pid_raw)
+        .pid_out         (pitch_pid_raw),
+        .overflow        (pitch_pid_overflow)
     );
 
     pid_controller #(
@@ -149,7 +159,8 @@ module flight_controller_top #(
         .Kd              (yaw_kd),
         .error_in        (yaw_error),
         .integrator_hold (yaw_integrator_hold),
-        .pid_out         (yaw_pid_raw)
+        .pid_out         (yaw_pid_raw),
+        .overflow        (yaw_pid_overflow)
     );
 
     // ================================================================
@@ -162,7 +173,8 @@ module flight_controller_top #(
     ) sat_roll (
         .raw_in          (roll_pid_raw),
         .clamped_out     (roll_clamped),
-        .integrator_hold (roll_integrator_hold)
+        .integrator_hold (roll_integrator_hold),
+        .overflow        (roll_sat_overflow)
     );
 
     saturation_guard #(
@@ -171,7 +183,8 @@ module flight_controller_top #(
     ) sat_pitch (
         .raw_in          (pitch_pid_raw),
         .clamped_out     (pitch_clamped),
-        .integrator_hold (pitch_integrator_hold)
+        .integrator_hold (pitch_integrator_hold),
+        .overflow        (pitch_sat_overflow)
     );
 
     saturation_guard #(
@@ -180,7 +193,8 @@ module flight_controller_top #(
     ) sat_yaw (
         .raw_in          (yaw_pid_raw),
         .clamped_out     (yaw_clamped),
-        .integrator_hold (yaw_integrator_hold)
+        .integrator_hold (yaw_integrator_hold),
+        .overflow        (yaw_sat_overflow)
     );
 
     // Expose clamped PID outputs for monitoring

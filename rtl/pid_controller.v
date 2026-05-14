@@ -21,7 +21,8 @@ module pid_controller #(
     input  wire [15:0] Kd,               // Derivative gain
     input  wire [15:0] error_in,         // Signed Q8.8 error
     input  wire        integrator_hold,  // Freeze integrator when saturated
-    output reg  [15:0] pid_out           // Signed Q8.8 PID output (raw, unclamped)
+    output reg  [15:0] pid_out,          // Signed Q8.8 PID output (raw, unclamped)
+    output reg         overflow          // High when internal arithmetic overflows
 );
 
     // Internal registers
@@ -38,7 +39,9 @@ module pid_controller #(
     assign p_term = saturate_q88(p_product);
 
     // --- Derivative term ---
-    wire signed [15:0] error_diff = error_signed - prev_error;
+    // Compute difference using 17 bits to avoid silent 16-bit wraparound
+    wire signed [16:0] error_diff_wide = $signed(error_signed) - $signed(prev_error);
+    wire signed [15:0] error_diff = clamp_diff(error_diff_wide);
     wire signed [31:0] d_product  = $signed(Kd) * error_diff;
     wire signed [15:0] d_term;
     assign d_term = saturate_q88(d_product);
@@ -57,12 +60,26 @@ module pid_controller #(
     wire signed [15:0] pid_sum_clamped;
     assign pid_sum_clamped = clamp_to_range(pid_sum_wide, $signed(MAX_OUT), $signed(MIN_OUT));
 
+    // --- Overflow detection logic ---
+    wire p_overflow = (p_product[31] == 1'b0 && p_product[31:23] != 9'h000) ||
+                      (p_product[31] == 1'b1 && p_product[31:23] != 9'h1FF);
+    wire i_overflow = (i_product[31] == 1'b0 && i_product[31:23] != 9'h000) ||
+                      (i_product[31] == 1'b1 && i_product[31:23] != 9'h1FF);
+    wire d_overflow = (d_product[31] == 1'b0 && d_product[31:23] != 9'h000) ||
+                      (d_product[31] == 1'b1 && d_product[31:23] != 9'h1FF);
+    wire diff_overflow = (error_diff_wide > 17'sd32767) || (error_diff_wide < -17'sd32768);
+    wire sum_overflow = (pid_sum_wide > $signed({{16{MAX_OUT[15]}}, MAX_OUT})) ||
+                        (pid_sum_wide < $signed({{16{MIN_OUT[15]}}, MIN_OUT}));
+    
+    wire any_overflow = p_overflow | i_overflow | d_overflow | diff_overflow | sum_overflow;
+
     // Clocked process
     always @(posedge clk) begin
         if (rst) begin
             prev_error  <= 16'sd0;
             integrator  <= 32'sd0;
             pid_out     <= 16'sd0;
+            overflow    <= 1'b0;
         end else begin
             // Update previous error
             prev_error <= error_signed;
@@ -74,6 +91,9 @@ module pid_controller #(
 
             // Output the clamped PID sum
             pid_out <= pid_sum_clamped;
+            
+            // Update overflow flag
+            overflow <= any_overflow;
         end
     end
 
@@ -126,6 +146,20 @@ module pid_controller #(
                 clamp_to_range = min_val;
             else
                 clamp_to_range = val[15:0];
+        end
+    endfunction
+
+    // Function: clamp_diff
+    // Clamps a 17-bit difference to 16-bit Q8.8 range.
+    function signed [15:0] clamp_diff;
+        input signed [16:0] diff;
+        begin
+            if (diff > 17'sd32767)
+                clamp_diff = 16'h7FFF;
+            else if (diff < -17'sd32768)
+                clamp_diff = 16'h8000;
+            else
+                clamp_diff = diff[15:0];
         end
     endfunction
 
