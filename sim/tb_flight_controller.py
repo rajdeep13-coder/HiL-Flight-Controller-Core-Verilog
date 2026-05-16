@@ -281,6 +281,9 @@ async def hil_flight_test(dut):
     # Initialize physics model
     physics = QuadcopterPhysics(dt=PHYSICS_DT)
     
+    # Divergence Tracking
+    consecutive_sat_cycles = 0
+    
     # Open CSV log
     csv_file = open("hil_flight_log.csv", "w", newline="")
     csv_writer = csv.writer(csv_file)
@@ -379,6 +382,35 @@ async def hil_flight_test(dut):
         assert dut.roll_pid_overflow.value == 0, f"Roll PID internal arithmetic overflow detected at cycle {cycle}!"
         assert dut.pitch_pid_overflow.value == 0, f"Pitch PID internal arithmetic overflow detected at cycle {cycle}!"
         assert dut.yaw_pid_overflow.value == 0, f"Yaw PID internal arithmetic overflow detected at cycle {cycle}!"
+        
+        # PWM Duty Cycle Range Check (Hardware limits 0.0 to 127.0)
+        assert 0.0 <= m0_duty <= 127.0, f"M0 duty out of bounds: {m0_duty} at cycle {cycle}"
+        assert 0.0 <= m1_duty <= 127.0, f"M1 duty out of bounds: {m1_duty} at cycle {cycle}"
+        assert 0.0 <= m2_duty <= 127.0, f"M2 duty out of bounds: {m2_duty} at cycle {cycle}"
+        assert 0.0 <= m3_duty <= 127.0, f"M3 duty out of bounds: {m3_duty} at cycle {cycle}"
+
+        # Divergence / Saturation check
+        # If any motor is stuck at max/min saturation bounds for too long, the drone is probably spiraling/diverging
+        if (m0_duty >= 126.0 or m0_duty <= 1.0 or
+            m1_duty >= 126.0 or m1_duty <= 1.0 or
+            m2_duty >= 126.0 or m2_duty <= 1.0 or
+            m3_duty >= 126.0 or m3_duty <= 1.0):
+            consecutive_sat_cycles += 1
+        else:
+            consecutive_sat_cycles = 0
+            
+        assert consecutive_sat_cycles < 500, f"Divergence detected: motor saturated for 500+ cycles at cycle {cycle}."
+
+        # Settle-time and Integrator-Hold Checks at phase boundaries
+        # Phase 1 ends at cycle 1499. Phase 2 ends at cycle 2999.
+        if cycle == 1499 or cycle == 2999:
+            assert abs(roll_err) < 1.0, f"Roll failed to settle within 1 degree by cycle {cycle}. Err: {roll_err:.3f}"
+            assert abs(pitch_err) < 1.0, f"Pitch failed to settle within 1 degree by cycle {cycle}. Err: {pitch_err:.3f}"
+            assert abs(yaw_err) < 1.0, f"Yaw failed to settle within 1 degree by cycle {cycle}. Err: {yaw_err:.3f}"
+            
+            # Integrator-hold verification: steady-state error should be driven to ~0
+            assert abs(roll_err) < 0.5, f"Roll integrator hold failed, steady-state error > 0.5 deg at cycle {cycle}. Err: {roll_err:.3f}"
+            assert abs(pitch_err) < 0.5, f"Pitch integrator hold failed, steady-state error > 0.5 deg at cycle {cycle}. Err: {pitch_err:.3f}"
     
     # Cleanup
     csv_file.close()
