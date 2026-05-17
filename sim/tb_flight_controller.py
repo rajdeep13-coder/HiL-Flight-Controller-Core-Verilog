@@ -322,9 +322,9 @@ async def hil_flight_test(dut):
         
         # --- Runtime gain retune at mid-simulation ---
         if cycle == RETUNE_CYCLE:
-            dut._log.info("=== RUNTIME RETUNE: Increasing roll/pitch Kp from ~0.1 to ~0.2 ===")
-            await write_gain(dut, 'roll_kp',  float_to_q88(0.2))   # addr 0x0
-            await write_gain(dut, 'pitch_kp', float_to_q88(0.2))   # addr 0x3
+            dut._log.info("=== RUNTIME RETUNE: Increasing roll/pitch Kp from 1.5 to 1.8 ===")
+            await write_gain(dut, 'roll_kp',  float_to_q88(1.8))   # addr 0x0
+            await write_gain(dut, 'pitch_kp', float_to_q88(1.8))   # addr 0x3
             dut._log.info("=== Gains updated. Controller response should change. ===")
         
         # --- 1. Read motor duty cycles from DUT ---

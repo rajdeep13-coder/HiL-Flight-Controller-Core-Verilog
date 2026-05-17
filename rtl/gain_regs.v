@@ -22,15 +22,15 @@
 
 module gain_regs #(
     // Reset defaults — match flight_controller_top original parameters
-    parameter signed [15:0] ROLL_Kp_INIT  = 16'h001A,  // ~0.1
-    parameter signed [15:0] ROLL_Ki_INIT  = 16'h0001,  // ~0.004
-    parameter signed [15:0] ROLL_Kd_INIT  = 16'h0033,  // ~0.2
-    parameter signed [15:0] PITCH_Kp_INIT = 16'h001A,  // ~0.1
-    parameter signed [15:0] PITCH_Ki_INIT = 16'h0001,  // ~0.004
-    parameter signed [15:0] PITCH_Kd_INIT = 16'h0033,  // ~0.2
-    parameter signed [15:0] YAW_Kp_INIT   = 16'h000D,  // ~0.05
-    parameter signed [15:0] YAW_Ki_INIT   = 16'h0001,  // ~0.004
-    parameter signed [15:0] YAW_Kd_INIT   = 16'h001A   // ~0.1
+    parameter signed [15:0] ROLL_Kp_INIT  = 16'h0180,  // ~1.5
+    parameter signed [15:0] ROLL_Ki_INIT  = 16'h0000,  // 0.0
+    parameter signed [15:0] ROLL_Kd_INIT  = 16'h0A00,  // ~10.0
+    parameter signed [15:0] PITCH_Kp_INIT = 16'h0180,  // ~1.5
+    parameter signed [15:0] PITCH_Ki_INIT = 16'h0000,  // 0.0
+    parameter signed [15:0] PITCH_Kd_INIT = 16'h0A00,  // ~10.0
+    parameter signed [15:0] YAW_Kp_INIT   = 16'h0180,  // ~1.5
+    parameter signed [15:0] YAW_Ki_INIT   = 16'h0000,  // 0.0
+    parameter signed [15:0] YAW_Kd_INIT   = 16'h0A00   // ~10.0
 )(
     input  wire        clk,
     input  wire        rst,
