@@ -7,3 +7,6 @@ sim/hil_flight_log.csv
 # Python
 __pycache__/
 *.pyc
+
+
+sim/sim_output.txt

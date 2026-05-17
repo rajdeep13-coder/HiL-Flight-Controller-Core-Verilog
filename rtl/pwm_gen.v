@@ -29,6 +29,13 @@ module pwm_gen #(
     // Counter register
     reg [COUNTER_WIDTH-1:0] counter;
 
+    // Simulation start assertion
+    localparam integer ACTUAL_PWM_FREQ = CLK_FREQ / COUNTER_MAX;
+    initial begin
+        $display("PWM Generator: CLK_FREQ=%0d Hz, Target PWM_FREQ=%0d Hz, Actual PWM_FREQ=%0d Hz", 
+                 CLK_FREQ, PWM_FREQ, ACTUAL_PWM_FREQ);
+    end
+
     // Threshold calculation
     // duty_word is Q8.8 where the integer part (bits [15:8]) represents
     // the duty percentage (0–127). We scale it to the counter range:
