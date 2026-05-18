@@ -93,8 +93,20 @@ hil-flight-controller/
 |:-----|:--------|:--------|
 | [Icarus Verilog](http://iverilog.icarus.com/) | ≥ 11.0 | `apt install iverilog` / [download](http://iverilog.icarus.com/) |
 | [Python](https://python.org) | ≥ 3.8 | — |
-| [cocotb](https://www.cocotb.org/) | ≥ 1.8 | `pip install cocotb` |
-| [matplotlib](https://matplotlib.org/) | ≥ 3.5 | `pip install matplotlib numpy` |
+
+**Install the required Python packages:**
+
+Using `pip`:
+```bash
+pip install -r requirements.txt
+```
+
+Using `conda`:
+```bash
+conda env create -f environment.yml
+conda activate flight_controller
+```
+
 
 ### Step 1: Standalone PID Verification
 
