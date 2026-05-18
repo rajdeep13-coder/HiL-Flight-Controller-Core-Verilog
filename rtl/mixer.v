@@ -11,7 +11,7 @@
 //   Motor 3 (Back Right):  Throttle - Roll - Pitch - Yaw
 //
 // All values in signed Q8.8 fixed-point.
-// Motor outputs are clamped to [0, +127.0] (motors can't reverse).
+// Motor outputs are clamped to [0, +100.0] (motors can't reverse).
 //============================================================================
 
 module mixer (
@@ -26,7 +26,7 @@ module mixer (
 );
 
     // Motor floor and ceiling (Q8.8)
-    localparam signed [15:0] MOTOR_MAX = 16'h7F00;  // +127.0
+    localparam signed [15:0] MOTOR_MAX = 16'h6400;  // +100.0
     localparam signed [15:0] MOTOR_MIN = 16'h0000;  //    0.0
 
     // Wide intermediate sums (32-bit to catch overflow)
@@ -35,7 +35,7 @@ module mixer (
     wire signed [31:0] m2_raw = $signed(throttle) + $signed(roll_out) + $signed(pitch_out) - $signed(yaw_out);
     wire signed [31:0] m3_raw = $signed(throttle) - $signed(roll_out) - $signed(pitch_out) - $signed(yaw_out);
 
-    // Clamp each motor output to [0, +127.0]
+    // Clamp each motor output to [0, +100.0]
     assign motor0 = clamp_motor(m0_raw);
     assign motor1 = clamp_motor(m1_raw);
     assign motor2 = clamp_motor(m2_raw);
