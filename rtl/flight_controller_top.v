@@ -26,7 +26,8 @@ module flight_controller_top #(
     parameter signed [15:0] MIN_OUT  = 16'h8100,  // -127.0
     // PWM parameters
     parameter CLK_FREQ = 50_000_000,
-    parameter PWM_FREQ = 50
+    parameter PWM_FREQ = 50,
+    parameter WATCHDOG_TIMEOUT = 50_000_000
 )(
     // ---- System ----
     input  wire        clk,
@@ -38,6 +39,7 @@ module flight_controller_top #(
     input  wire [15:0] wr_data,        // Write data (Q8.8)
 
     // ---- Error inputs (Q8.8 signed) ----
+    input  wire        error_valid,
     input  wire [15:0] roll_error,
     input  wire [15:0] pitch_error,
     input  wire [15:0] yaw_error,
@@ -206,16 +208,42 @@ module flight_controller_top #(
     // Motor Mixer (X-frame configuration)
     // ================================================================
 
+    wire [15:0] mixer_motor0;
+    wire [15:0] mixer_motor1;
+    wire [15:0] mixer_motor2;
+    wire [15:0] mixer_motor3;
+
     mixer mixer_inst (
         .throttle  (throttle),
         .roll_out  (roll_clamped),
         .pitch_out (pitch_clamped),
         .yaw_out   (yaw_clamped),
-        .motor0    (motor0_duty),
-        .motor1    (motor1_duty),
-        .motor2    (motor2_duty),
-        .motor3    (motor3_duty)
+        .motor0    (mixer_motor0),
+        .motor1    (mixer_motor1),
+        .motor2    (mixer_motor2),
+        .motor3    (mixer_motor3)
     );
+
+    // ================================================================
+    // Failsafe / Watchdog Timer
+    // ================================================================
+
+    wire motor_enable;
+
+    watchdog_timer #(
+        .TIMEOUT_CYCLES (WATCHDOG_TIMEOUT)
+    ) watchdog_inst (
+        .clk          (clk),
+        .rst          (rst),
+        .error_valid  (error_valid),
+        .motor_enable (motor_enable)
+    );
+
+    // Multiplex motor outputs: 0 duty cycle if watchdog disarms motors
+    assign motor0_duty = motor_enable ? mixer_motor0 : 16'd0;
+    assign motor1_duty = motor_enable ? mixer_motor1 : 16'd0;
+    assign motor2_duty = motor_enable ? mixer_motor2 : 16'd0;
+    assign motor3_duty = motor_enable ? mixer_motor3 : 16'd0;
 
     // ================================================================
     // PWM Generators (one per motor)

@@ -30,6 +30,7 @@ def main():
         os.path.join(rtl_dir, "saturation_guard.v"),
         os.path.join(rtl_dir, "mixer.v"),
         os.path.join(rtl_dir, "pwm_gen.v"),
+        os.path.join(rtl_dir, "watchdog_timer.v"),
         os.path.join(rtl_dir, "flight_controller_top.v"),
     ]
     
@@ -49,7 +50,7 @@ def main():
     runner.build(
         sources=sources,
         hdl_toplevel="flight_controller_top",
-        build_args=["-g2012"],
+        build_args=["-g2012", "-Pflight_controller_top.WATCHDOG_TIMEOUT=500"],
         build_dir=os.path.join(proj_dir, "sim_build"),
     )
     

@@ -29,6 +29,7 @@ MODULE = tb_flight_controller
 
 # Compilation flags for Icarus Verilog
 COMPILE_ARGS += -g2012
+COMPILE_ARGS += -Pflight_controller_top.WATCHDOG_TIMEOUT=500
 
 # Include the cocotb Makefile infrastructure
 include $(shell cocotb-config --makefiles)/Makefile.sim

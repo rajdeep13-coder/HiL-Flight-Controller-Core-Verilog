@@ -259,7 +259,7 @@ async def hil_flight_test(dut):
     """
     
     # Configuration
-    NUM_CYCLES   = 3000          # Number of simulation cycles
+    NUM_CYCLES   = 3500          # Number of simulation cycles
     CLK_PERIOD   = 20            # ns (50 MHz)
     PHYSICS_DT   = 0.001         # seconds per sim step
     
@@ -303,6 +303,7 @@ async def hil_flight_test(dut):
     dut.pitch_error.value = 0
     dut.yaw_error.value   = 0
     dut.throttle.value    = float_to_q88(THROTTLE_HOVER)
+    dut.error_valid.value = 1
     dut.wr_en.value       = 0
     dut.wr_addr.value     = 0
     dut.wr_data.value     = 0
@@ -326,6 +327,11 @@ async def hil_flight_test(dut):
             await write_gain(dut, 'roll_kp',  float_to_q88(1.8))   # addr 0x0
             await write_gain(dut, 'pitch_kp', float_to_q88(1.8))   # addr 0x3
             dut._log.info("=== Gains updated. Controller response should change. ===")
+
+        # --- Runtime sensor failure at cycle 2500 ---
+        if cycle == 2500:
+            dut._log.info("=== SENSOR FAILURE: error_valid goes low ===")
+            dut.error_valid.value = 0
         
         # --- 1. Read motor duty cycles from DUT ---
         m0_duty = q88_to_float(dut.motor0_duty.value.to_unsigned() & 0xFFFF)
@@ -391,19 +397,20 @@ async def hil_flight_test(dut):
 
         # Divergence / Saturation check
         # If any motor is stuck at max/min saturation bounds for too long, the drone is probably spiraling/diverging
-        if (m0_duty >= 126.0 or m0_duty <= 1.0 or
-            m1_duty >= 126.0 or m1_duty <= 1.0 or
-            m2_duty >= 126.0 or m2_duty <= 1.0 or
-            m3_duty >= 126.0 or m3_duty <= 1.0):
-            consecutive_sat_cycles += 1
-        else:
-            consecutive_sat_cycles = 0
-            
-        assert consecutive_sat_cycles < 500, f"Divergence detected: motor saturated for 500+ cycles at cycle {cycle}."
+        if cycle < 2500:
+            if (m0_duty >= 126.0 or m0_duty <= 1.0 or
+                m1_duty >= 126.0 or m1_duty <= 1.0 or
+                m2_duty >= 126.0 or m2_duty <= 1.0 or
+                m3_duty >= 126.0 or m3_duty <= 1.0):
+                consecutive_sat_cycles += 1
+            else:
+                consecutive_sat_cycles = 0
+                
+            assert consecutive_sat_cycles < 500, f"Divergence detected: motor saturated for 500+ cycles at cycle {cycle}."
 
         # Settle-time and Integrator-Hold Checks at phase boundaries
-        # Phase 1 ends at cycle 1499. Phase 2 ends at cycle 2999.
-        if cycle == 1499 or cycle == 2999:
+        # Phase 1 ends at cycle 1499. Phase 2 ends at cycle 2499.
+        if cycle == 1499 or cycle == 2499:
             assert abs(roll_err) < 1.0, f"Roll failed to settle within 1 degree by cycle {cycle}. Err: {roll_err:.3f}"
             assert abs(pitch_err) < 1.0, f"Pitch failed to settle within 1 degree by cycle {cycle}. Err: {pitch_err:.3f}"
             assert abs(yaw_err) < 1.0, f"Yaw failed to settle within 1 degree by cycle {cycle}. Err: {yaw_err:.3f}"
@@ -411,6 +418,14 @@ async def hil_flight_test(dut):
             # Integrator-hold verification: steady-state error should be driven to ~0
             assert abs(roll_err) < 0.5, f"Roll integrator hold failed, steady-state error > 0.5 deg at cycle {cycle}. Err: {roll_err:.3f}"
             assert abs(pitch_err) < 0.5, f"Pitch integrator hold failed, steady-state error > 0.5 deg at cycle {cycle}. Err: {pitch_err:.3f}"
+
+        # Failsafe verification
+        # The timeout is 500 cycles (from Makefile parameter), failsafe injected at 2500, so at 3000 it should be active.
+        if cycle > 3050:
+            assert m0_duty == 0.0, f"Failsafe failed: m0_duty is {m0_duty} at cycle {cycle}"
+            assert m1_duty == 0.0, f"Failsafe failed: m1_duty is {m1_duty} at cycle {cycle}"
+            assert m2_duty == 0.0, f"Failsafe failed: m2_duty is {m2_duty} at cycle {cycle}"
+            assert m3_duty == 0.0, f"Failsafe failed: m3_duty is {m3_duty} at cycle {cycle}"
     
     # Cleanup
     csv_file.close()
