@@ -4,6 +4,18 @@ A complete simulation-ready **Verilog** flight controller for a quadcopter, feat
 
 ---
 
+## Key Features
+
+- **Runtime-Writable Gain Registers:** PID gains are configurable on-the-fly via a memory-mapped `gain_regs` module, enabling runtime tuning without recompilation.
+- **6-DOF Physics Simulation:** The HiL testbench models both rotational dynamics and translational physics (Newton's second law, altitude/thrust).
+- **Robust Arithmetic & Overflow Detection:** Signed Q8.8 fixed-point math with dedicated 32-bit intermediate overflow flags for the PIDs and saturation modules.
+- **Active Cocotb Assertions:** The testbench actively verifies correctness with settle-time checks, integrator anti-windup verification, and duty-cycle range assertions.
+- **Clock-Agnostic PWM:** `pwm_gen.v` automatically calculates period counters at elaboration time based on parameterized `CLK_FREQ` and `PWM_FREQ`.
+- **Automated CI Pipeline:** GitHub Actions workflow compiles the RTL and runs tests with Icarus Verilog on every push.
+- **Strict Motor Mixing Clamps:** The X-frame mixer implements independent clamping for per-motor outputs to enforce a strict physical maximum of 100% duty cycle.
+
+---
+
 ## Architecture
 
 ```
@@ -21,7 +33,7 @@ Three independent **PID controllers** (roll, pitch, yaw) process error signals, 
 
 PID gains (Kp/Ki/Kd × 3 axes) are stored in a **runtime-writable register file** (`gain_regs`) accessible via a simple parallel bus — no recompilation needed to retune. This enables live tuning from the Python HiL testbench and opens the door to auto-tuning.
 
-The HiL testbench closes the loop with a **Python rotational physics model** — reading motor outputs, simulating quadcopter dynamics, and writing errors back into the DUT each clock cycle.
+The HiL testbench closes the loop with a **Python 6-DOF physics model** (including both rotational and translational dynamics) — reading motor outputs, simulating quadcopter physics, and writing errors back into the DUT each clock cycle.
 
 ---
 
